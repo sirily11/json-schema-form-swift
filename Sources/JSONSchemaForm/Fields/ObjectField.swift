@@ -14,27 +14,88 @@ struct ObjectField: Field {
 
     @Environment(\.formTemplates) private var templates
 
+    /// Conditionals (`if`/`then`/`else`) declared on THIS object schema,
+    /// extracted from the raw schema JSON at init and delivered through the
+    /// uiSchema side-channel (`__objectConditionals`), keyed by field ID.
+    private var localConditionals: [ConditionalSchema] {
+        guard let map = uiSchema?["__objectConditionals"] as? [String: [ConditionalSchema]] else {
+            return []
+        }
+        return map[id] ?? []
+    }
+
+    /// The `then`/`else` branch schemas whose conditions currently match this
+    /// object's own form data.
+    private var activeBranchSchemas: [[String: Any]] {
+        let conditionals = localConditionals
+        guard !conditionals.isEmpty else { return [] }
+        return ConditionEvaluator.getApplicableSchemas(
+            conditionals: conditionals,
+            formData: formData.wrappedValue
+        )
+    }
+
+    /// Property names declared only in non-matching conditional branches.
+    /// These must not render — not even through the custom-widget ui:order
+    /// fallback below. Their values are intentionally kept in formData so a
+    /// hidden field's value is restored when the condition flips back.
+    private var hiddenConditionalKeys: Set<String> {
+        let conditionals = localConditionals
+        guard !conditionals.isEmpty else { return [] }
+        var declared: Set<String> = []
+        for conditional in conditionals {
+            for branch in [conditional.thenSchema, conditional.elseSchema] {
+                if let props = branch?["properties"] as? [String: Any] {
+                    declared.formUnion(props.keys)
+                }
+            }
+        }
+        var visible = Set((schema.objectSchema?.properties ?? [:]).keys)
+        visible.formUnion(SchemaMerger.getPropertyNamesFromConditionals(activeBranchSchemas))
+        return declared.subtracting(visible)
+    }
+
     // Extract properties from schema, using ui:order or JSON-defined order when available
     private var properties: OrderedDictionary<String, JSONSchema>? {
         guard case .object = schema.type else {
             return nil
         }
 
-        let dict = schema.objectSchema?.properties ?? [:]
+        var dict = schema.objectSchema?.properties ?? [:]
+        // Merge properties from matching conditional branches (branch wins —
+        // it is the more specific schema, mirroring AllOfField's merge).
+        for branch in activeBranchSchemas {
+            guard let props = branch["properties"] as? [String: Any] else { continue }
+            for (name, raw) in props {
+                if let rawSchema = raw as? [String: Any],
+                    let parsed = SchemaMerger.parsePropertySchema(rawSchema, name: name)
+                {
+                    dict[name] = parsed
+                }
+            }
+        }
+        let hidden = hiddenConditionalKeys
 
         // Priority: 1. ui:order from uiSchema, 2. JSON-defined order, 3. dictionary iteration order
         let orderedKeys: [String]
         if let uiOrder = uiSchema?["ui:order"] as? [String] {
             // Use ui:order from uiSchema. Keys missing from schema can still render
-            // when they declare a custom widget in uiSchema.
-            let orderedFromUi = uiOrder.filter { dict.keys.contains($0) || hasCustomWidget($0) }
+            // when they declare a custom widget in uiSchema — unless they belong
+            // to a non-matching conditional branch.
+            let orderedFromUi = uiOrder.filter {
+                !hidden.contains($0) && (dict.keys.contains($0) || hasCustomWidget($0))
+            }
             let remainingKeys = dict.keys.filter { !uiOrder.contains($0) }
             orderedKeys = orderedFromUi + remainingKeys
         } else if let orderMap = uiSchema?["__propertyKeyOrder"] as? [String: [String]],
             let jsonOrder = orderMap[id]
         {
-            // Use the original JSON property order, filtering to keys present in schema
-            orderedKeys = jsonOrder.filter { dict.keys.contains($0) }
+            // Use the original JSON property order, filtering to keys present in
+            // schema; conditional-branch keys are absent from the raw property
+            // order, so append them at the end.
+            let orderedFromJson = jsonOrder.filter { dict.keys.contains($0) }
+            let remainingKeys = dict.keys.filter { !jsonOrder.contains($0) }
+            orderedKeys = orderedFromJson + remainingKeys
         } else {
             orderedKeys = Array(dict.keys)
         }
@@ -59,13 +120,20 @@ struct ObjectField: Field {
         return JSONSchema.string()
     }
 
-    // Get required properties from schema
+    // Get required properties from schema, including matching conditional branches
     private var requiredProperties: [String]? {
         guard case .object = schema.type else {
             return nil
         }
 
-        return schema.objectSchema?.required
+        var required = schema.objectSchema?.required ?? []
+        for branch in activeBranchSchemas {
+            guard let branchRequired = branch["required"] as? [String] else { continue }
+            for name in branchRequired where !required.contains(name) {
+                required.append(name)
+            }
+        }
+        return required
     }
 
     /// Object template name requested by the schema's uiSchema, if any.
@@ -137,7 +205,8 @@ struct ObjectField: Field {
         return formData
     }
 
-    /// Computes the uiSchema for a child property, propagating property key order
+    /// Computes the uiSchema for a child property, propagating property key
+    /// order and object-level conditionals
     private func childUiSchema(for name: String) -> [String: Any]? {
         var result = uiSchema?[name] as? [String: Any]
         if let orderMap = uiSchema?["__propertyKeyOrder"] {
@@ -145,6 +214,12 @@ struct ObjectField: Field {
                 result = [:]
             }
             result?["__propertyKeyOrder"] = orderMap
+        }
+        if let conditionals = uiSchema?["__objectConditionals"] {
+            if result == nil {
+                result = [:]
+            }
+            result?["__objectConditionals"] = conditionals
         }
         return result
     }

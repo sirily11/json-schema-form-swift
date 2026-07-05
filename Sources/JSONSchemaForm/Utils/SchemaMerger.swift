@@ -45,7 +45,7 @@ public enum SchemaMerger {
     }
 
     /// Parse a raw property schema dictionary into a JSONSchema
-    private static func parsePropertySchema(_ propDict: [String: Any], name: String) -> JSONSchema? {
+    static func parsePropertySchema(_ propDict: [String: Any], name: String) -> JSONSchema? {
         do {
             let jsonData = try JSONSerialization.data(withJSONObject: propDict, options: [])
             let schema = try JSONDecoder().decode(JSONSchema.self, from: jsonData)

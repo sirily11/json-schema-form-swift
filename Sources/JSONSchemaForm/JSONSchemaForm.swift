@@ -200,17 +200,26 @@ public struct JSONSchemaForm: View {
         self.formData = formData
         self.conditionalSchemas = conditionalSchemas
 
-        // Merge property key order into uiSchema so it flows through the view hierarchy
+        // Merge property key order and object-level if/then/else conditionals
+        // into uiSchema so they flow through the view hierarchy
+        var mergedUiSchema = uiSchema
         if let order = schemaJSON.flatMap({
             PropertyOrderExtractor.extractPropertyOrder(
                 from: $0, idPrefix: idPrefix, idSeparator: idSeparator)
         }) {
-            var mergedUiSchema = uiSchema ?? [:]
-            mergedUiSchema["__propertyKeyOrder"] = order
-            self.uiSchema = mergedUiSchema
-        } else {
-            self.uiSchema = uiSchema
+            var merged = mergedUiSchema ?? [:]
+            merged["__propertyKeyOrder"] = order
+            mergedUiSchema = merged
         }
+        if let objectConditionals = schemaJSON.flatMap({
+            ObjectConditionalExtractor.extract(
+                from: $0, idPrefix: idPrefix, idSeparator: idSeparator)
+        }) {
+            var merged = mergedUiSchema ?? [:]
+            merged["__objectConditionals"] = objectConditionals
+            mergedUiSchema = merged
+        }
+        self.uiSchema = mergedUiSchema
 
         self.onSubmit = onSubmit
         self.onError = onError
