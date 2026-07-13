@@ -14,9 +14,10 @@ struct OneOfField: Field {
 
     @State private var selectedOptionIndex: Int = 0
 
-    /// Get the oneOf options from the combined schema
+    /// Get the oneOf options from the combined schema (anyOf schemas reuse this
+    /// field, so fall back to the anyOf branches)
     private var options: [JSONSchema] {
-        schema.combinedSchema?.oneOf ?? []
+        schema.combinedSchema?.oneOf ?? schema.combinedSchema?.anyOf ?? []
     }
 
     /// Generate display titles for the picker options
