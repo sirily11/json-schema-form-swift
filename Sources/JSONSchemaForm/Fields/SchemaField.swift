@@ -52,6 +52,14 @@ struct SchemaField: Field {
         self.widgets = widgets
     }
 
+    /// The non-null branch when this anyOf schema is just a nullable wrapper
+    /// (`anyOf: [X, {type: "null"}]`), or nil for genuine multi-branch anyOf.
+    private var nullableBranch: JSONSchema? {
+        guard let branches = schema.combinedSchema?.anyOf, branches.count == 2 else { return nil }
+        let nonNull = branches.filter { $0.type != .null }
+        return nonNull.count == 1 ? nonNull.first : nil
+    }
+
     /// Returns a binding for schema data that correctly updates the parent form data
     private func schemaDataBinding(schemaType: JSONSchema.SchemaType) -> Binding<FormData> {
         if let propertyName = propertyName {
@@ -259,15 +267,29 @@ struct SchemaField: Field {
             )
 
         case .anyOf:
-            // AnyOf fields use OneOfField with their own layout
-            OneOfField(
-                schema: schema,
-                uiSchema: uiSchema,
-                id: id,
-                formData: schemaDataBinding(schemaType: schema.type),
-                required: required,
-                propertyName: propertyName
-            )
+            if let nonNullBranch = nullableBranch {
+                // Nullable wrapper (anyOf: [X, {type: null}]) — render the non-null
+                // branch directly so its title/description/enum surface as a normal field.
+                SchemaField(
+                    schema: nonNullBranch,
+                    uiSchema: uiSchema,
+                    id: id,
+                    formData: formData,
+                    required: false,
+                    propertyName: propertyName,
+                    widgets: widgets
+                )
+            } else {
+                // AnyOf fields use OneOfField with their own layout
+                OneOfField(
+                    schema: schema,
+                    uiSchema: uiSchema,
+                    id: id,
+                    formData: schemaDataBinding(schemaType: schema.type),
+                    required: required,
+                    propertyName: propertyName
+                )
+            }
 
         case .allOf:
             // AllOf fields have their own complex layout
