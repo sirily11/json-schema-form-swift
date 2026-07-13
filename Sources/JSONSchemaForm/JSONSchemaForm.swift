@@ -127,6 +127,10 @@ public struct JSONSchemaForm: View {
     /// `ui:objectTemplate` / `ui:fieldTemplate` names, with optional defaults.
     var templates: JSONSchemaFormTemplates
 
+    /// Configuration for `ui:widget: "foreign-key"` fields: the app's
+    /// authenticated search client plus the selected-item transform.
+    var foreignKey: ForeignKeyConfiguration?
+
     /// String prefix for field IDs
     var idPrefix: String = "root"
 
@@ -171,6 +175,9 @@ public struct JSONSchemaForm: View {
     ///   - readonly: Whether the form is read-only (default: false)
     ///   - customValidate: Additional custom validation function
     ///   - widgets: Custom widgets keyed by `ui:widget`
+    ///   - foreignKey: Configuration for `ui:widget: "foreign-key"` fields
+    ///     (search client + selected-item transform). Without it those
+    ///     fields fall back to plain string inputs.
     ///   - idPrefix: Prefix for field IDs (default: "root")
     ///   - idSeparator: Separator for field IDs (default: "_")
     ///   - controller: Optional controller for programmatic form control
@@ -192,6 +199,7 @@ public struct JSONSchemaForm: View {
         customValidate: ((Any?, inout [String: Any]) -> Void)? = nil,
         widgets: [String: JSONSchemaFormWidget] = [:],
         templates: JSONSchemaFormTemplates = JSONSchemaFormTemplates(),
+        foreignKey: ForeignKeyConfiguration? = nil,
         idPrefix: String = "root",
         idSeparator: String = "_",
         controller: JSONSchemaFormController? = nil
@@ -233,6 +241,7 @@ public struct JSONSchemaForm: View {
         self.customValidate = customValidate
         self.widgets = widgets
         self.templates = templates
+        self.foreignKey = foreignKey
         self.idPrefix = idPrefix
         self.idSeparator = idSeparator
         self.externalController = controller
@@ -253,7 +262,8 @@ public struct JSONSchemaForm: View {
                 formData: formData,
                 required: false,
                 conditionalSchemas: conditionalSchemas,
-                widgets: widgets
+                widgets: widgets,
+                foreignKey: foreignKey
             )
 
             if showSubmitButton {
