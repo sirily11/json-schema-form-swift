@@ -17,6 +17,9 @@ struct SchemaField: Field {
     /// Custom widgets keyed by `ui:widget`.
     var widgets: [String: JSONSchemaFormWidget]
 
+    /// App-supplied configuration for built-in `foreign-key` fields.
+    var foreignKey: ForeignKeyConfiguration?
+
     /// Access to the form controller for field-level error display
     @Environment(\.formController) private var formController
 
@@ -40,7 +43,8 @@ struct SchemaField: Field {
     init(
         schema: JSONSchema, uiSchema: [String: Any]?, id: String, formData: Binding<FormData>,
         required: Bool, propertyName: String? = nil, conditionalSchemas: [ConditionalSchema]? = nil,
-        widgets: [String: JSONSchemaFormWidget] = [:]
+        widgets: [String: JSONSchemaFormWidget] = [:],
+        foreignKey: ForeignKeyConfiguration? = nil
     ) {
         self.schema = schema
         self.uiSchema = uiSchema
@@ -50,6 +54,7 @@ struct SchemaField: Field {
         self.propertyName = propertyName
         self.conditionalSchemas = conditionalSchemas
         self.widgets = widgets
+        self.foreignKey = foreignKey
     }
 
     /// The non-null branch when this anyOf schema is just a nullable wrapper
@@ -95,6 +100,28 @@ struct SchemaField: Field {
                     formData: schemaDataBinding(schemaType: schema.type),
                     required: required
                 ))
+            } else if uiWidget == ForeignKeyField.widgetName {
+                // Built-in foreign-key field: a row pushing a dedicated
+                // searchable, paginated picker page. An app-registered
+                // widget of the same name (above) still takes precedence.
+                TemplatedField(
+                    id: id,
+                    label: fieldTitle,
+                    description: schema.description,
+                    errors: currentFieldErrors,
+                    required: required,
+                    uiSchema: uiSchema
+                ) {
+                    ForeignKeyField(
+                        schema: schema,
+                        uiSchema: uiSchema,
+                        id: id,
+                        formData: schemaDataBinding(schemaType: schema.type),
+                        required: required,
+                        propertyName: propertyName,
+                        configuration: foreignKey
+                    )
+                }
             } else if let customField = uiField {
                 // If a custom field is specified in uiSchema, use it
                 // In a complete implementation, this would look up the custom field
@@ -207,7 +234,8 @@ struct SchemaField: Field {
                     formData: schemaDataBinding(schemaType: schema.type),
                     required: required,
                     propertyName: propertyName,
-                    widgets: widgets
+                    widgets: widgets,
+                    foreignKey: foreignKey
                 )
             }
 
@@ -277,7 +305,8 @@ struct SchemaField: Field {
                     formData: formData,
                     required: false,
                     propertyName: propertyName,
-                    widgets: widgets
+                    widgets: widgets,
+                    foreignKey: foreignKey
                 )
             } else {
                 // AnyOf fields use OneOfField with their own layout

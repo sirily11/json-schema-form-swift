@@ -11,6 +11,7 @@ struct ObjectField: Field {
     var required: Bool
     var propertyName: String?
     var widgets: [String: JSONSchemaFormWidget] = [:]
+    var foreignKey: ForeignKeyConfiguration?
 
     @Environment(\.formTemplates) private var templates
 
@@ -112,7 +113,7 @@ struct ObjectField: Field {
               let widgetName = propertyUiSchema["ui:widget"] as? String else {
             return false
         }
-        return widgets[widgetName] != nil
+        return widgets[widgetName] != nil || widgetName == ForeignKeyField.widgetName
     }
 
     private func virtualSchema(for name: String) -> JSONSchema? {
@@ -245,7 +246,8 @@ struct ObjectField: Field {
                 formData: schemaBinding(name: name),
                 required: isRequired,
                 propertyName: name,
-                widgets: widgets
+                widgets: widgets,
+                foreignKey: foreignKey
             )
         } else {
             InvalidValueType(

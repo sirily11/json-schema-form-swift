@@ -176,6 +176,76 @@ let advancedSchema: JSONSchema = .object(
 )
 ```
 
+### Foreign-Key Fields
+
+Fields marked `ui:widget: "foreign-key"` render as a row that pushes a dedicated,
+searchable, cursor-paginated picker page (the form must be inside a
+`NavigationStack`). The library stays network-agnostic: you inject a search
+client so requests carry your app's authentication, and a transform that decides
+what gets stored (just the id, or the full object).
+
+The field's `ui:options` describe the data source:
+
+```json
+{
+    "stationId": {
+        "ui:widget": "foreign-key",
+        "ui:options": {
+            "endpoint": "stations",
+            "searchable": true
+        }
+    }
+}
+```
+
+- `endpoint` (required): opaque token passed verbatim to your client — typically a resource name or path.
+- `searchable` (default `true`): set `false` to hide the search bar for endpoints without text search.
+- `accessibility_id` (optional): applied to the row via `accessibilityIdentifier`.
+
+Implement the client and pass a `ForeignKeyConfiguration` to the form:
+
+```swift
+@MainActor
+final class MySearchClient: ForeignKeySearchClient {
+    func search(endpoint: String, query: String?, cursor: String?) async throws -> ForeignKeyPage {
+        let page = try await api.list(endpoint, query: query, cursor: cursor) // your authenticated API
+        return ForeignKeyPage(
+            items: page.items.map { ForeignKeyItem(id: $0.id, title: $0.name, subtitle: $0.detail) },
+            nextCursor: page.nextCursor
+        )
+    }
+
+    // Optional: resolve a stored id to a display title for the field row.
+    func resolve(endpoint: String, id: String) async throws -> ForeignKeyItem? {
+        let record = try await api.get(endpoint, id: id)
+        return ForeignKeyItem(id: record.id, title: record.name)
+    }
+}
+
+JSONSchemaForm(
+    schema: schema,
+    uiSchema: uiSchema,
+    formData: $formData,
+    foreignKey: ForeignKeyConfiguration(client: MySearchClient())
+)
+```
+
+By default the picked item's id is stored as a string. APIs that expect the full
+object can customize the transform (and teach the library how to read the id
+back out for display and selection highlighting):
+
+```swift
+ForeignKeyConfiguration(
+    client: MySearchClient(),
+    transform: { item, context in item.raw ?? .string(item.id) },
+    storedID: { value in value.object?["id"]?.string }
+)
+```
+
+Fields with `ui:widget: "foreign-key"` fall back to a plain string input when no
+`foreignKey` configuration (or no `endpoint`) is provided, and an app-registered
+`widgets["foreign-key"]` entry overrides the built-in field entirely.
+
 ## Available Props
 
 The `JSONSchemaForm` component accepts the following properties:
@@ -195,6 +265,8 @@ The `JSONSchemaForm` component accepts the following properties:
 | `disabled` | `Bool` | Whether the entire form is disabled (default: false) |
 | `readonly` | `Bool` | Whether the entire form is read-only (default: false) |
 | `customValidate` | `((Any?, inout [String: Any]) -> Void)?` | Custom validation function |
+| `widgets` | `[String: JSONSchemaFormWidget]` | Custom widgets keyed by `ui:widget` name |
+| `foreignKey` | `ForeignKeyConfiguration?` | Search client + transform for `ui:widget: "foreign-key"` fields |
 | `idPrefix` | `String` | Prefix for form field IDs (default: "root") |
 | `idSeparator` | `String` | Separator for nested field IDs (default: "_") |
 
